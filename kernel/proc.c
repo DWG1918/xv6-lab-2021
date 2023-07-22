@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#ifdef LAB_SYSCALL
+#include "sysinfo.h"
+#endif
 
 struct cpu cpus[NCPU];
 
@@ -14,6 +17,10 @@ struct proc *initproc;
 
 int nextpid = 1;
 struct spinlock pid_lock;
+
+#ifdef LAB_SYSCALL
+extern uint64 freemem(void);
+#endif
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
@@ -288,6 +295,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  //copy trace mask
+  np->trace_mask =p->trace_mask;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -654,3 +664,42 @@ procdump(void)
     printf("\n");
   }
 }
+
+ #ifdef LAB_SYSCALL
+// get number of proc
+uint64
+nproc(void)
+{
+  uint64 counter = 0;
+  struct proc *p;
+  // 遍历进程控制块，即OS课程中的PCB
+  for(p = proc; p < &proc[NPROC]; p++) { 
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      ++counter;
+    }
+    release(&p->lock);
+  }
+  return counter;
+}
+#endif
+
+#ifdef LAB_SYSCALL
+// get sysinfo
+uint64
+sys_sysinfo(void)
+{
+  uint64 info; // user pointer
+  struct sysinfo kinfo;
+  struct proc *p = myproc();
+  if(argaddr(0, &info) < 0){
+    return -1;
+  }
+  kinfo.freemem = freemem();
+  kinfo.nproc = nproc();
+  if(copyout(p->pagetable, info, (char*)&kinfo, sizeof(kinfo)) < 0){
+    return -1;
+  }
+  return 0;
+}
+#endif
