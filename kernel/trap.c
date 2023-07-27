@@ -36,7 +36,7 @@ trapinithart(void)
 void
 usertrap(void)
 {
-  int which_dev = 0;
+   int which_dev = 0;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
@@ -65,8 +65,13 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 15) {
+    // write permission fault on a read-only COW page
+    if (cowalloc(p->pagetable, r_stval()) < 0) {
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
-    // ok
+      // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
