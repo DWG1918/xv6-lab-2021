@@ -67,11 +67,45 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }else if(r_scause() == 13 || r_scause() == 15){
+    uint64 addr = r_stval();
+    uint64 pa;
+
+    // 遍历进程中的 vma 数组
+    for(struct vma* v = p->va; v < p->va + NVMA; ++v){
+      if(addr >= v->start && addr <= v->end){
+        // 如果 addr 在某个 vma 的范围里
+        // 就给它分配物理页
+        pa = (uint64)kalloc();
+        memset((void*)pa, 0, PGSIZE);
+
+        // 开始读文件了
+        begin_op();
+        ilock(v->file->ip);
+        // 读 inode 中的内容
+        readi(v->file->ip, 0, pa, v->off + addr - v->start, PGSIZE);
+        iunlock(v->file->ip);
+        end_op();
+        // 把虚拟地址映射到物理页上
+        mappages(p->pagetable, PGROUNDDOWN(addr), PGSIZE, pa, PTE_U | (v->prot << 1));
+        goto out;
+      }
+    }
+
+    // 现在处理的是地址无效的情况
+    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    p->killed = 1;
+  } 
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
+
+  out:
+  if(p->killed)
+    exit(-1);
 
   if(p->killed)
     exit(-1);

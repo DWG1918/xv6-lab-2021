@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -140,6 +141,18 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+   // Clear the VMA array
+  for (int i = 0; i < NVMA; i++) {
+    p->vmas[i].valid  = 0;
+    p->vmas[i].addr   = 0;
+    p->vmas[i].length = 0;
+    p->vmas[i].prot   = 0;
+    p->vmas[i].flags  = 0;
+    p->vmas[i].fd     = 0;
+    p->vmas[i].offset = 0;
+    p->vmas[i].f      = 0;
+  }
 
   return p;
 }
