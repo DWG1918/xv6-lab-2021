@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -36,7 +39,7 @@ trapinithart(void)
 void
 usertrap(void)
 {
-  int which_dev = 0;
+ int which_dev = 0;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
@@ -65,47 +68,49 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
-    // ok
-  }else if(r_scause() == 13 || r_scause() == 15){
-    uint64 addr = r_stval();
-    uint64 pa;
-
-    // 遍历进程中的 vma 数组
-    for(struct vma* v = p->va; v < p->va + NVMA; ++v){
-      if(addr >= v->start && addr <= v->end){
-        // 如果 addr 在某个 vma 的范围里
-        // 就给它分配物理页
-        pa = (uint64)kalloc();
-        memset((void*)pa, 0, PGSIZE);
-
-        // 开始读文件了
-        begin_op();
-        ilock(v->file->ip);
-        // 读 inode 中的内容
-        readi(v->file->ip, 0, pa, v->off + addr - v->start, PGSIZE);
-        iunlock(v->file->ip);
-        end_op();
-        // 把虚拟地址映射到物理页上
-        mappages(p->pagetable, PGROUNDDOWN(addr), PGSIZE, pa, PTE_U | (v->prot << 1));
-        goto out;
+  } else if(r_scause() == 13 || r_scause() == 15){
+    uint64 va = r_stval();
+    struct vma *pvma;
+    int i = 0;
+    //p->sz point to the top of heap(i.e. bottom of trapframe)
+    //p->trapframe->sp point to the top of stack
+    if((va >= p->sz) || (va < PGROUNDDOWN(p->trapframe->sp))){
+      p->killed = 1;
+    } else{
+      va = PGROUNDDOWN(va);
+      for(; i < MAXVMA; i++){
+	      pvma = &p->vma_table[i];
+        if(pvma->mapped && (va >= pvma->addr) && (va < (pvma->addr + pvma->len))){
+          char *mem;
+	        mem = kalloc();
+          if(mem == 0){
+            p->killed = 1;
+            break;
+          }
+	        memset(mem, 0, PGSIZE);
+          //PTE_R (1L << 1), so prot also needs to move left one bit
+          if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, (pvma->prot << 1) | PTE_U) != 0){
+            kfree(mem);
+            p->killed = 1;
+            break;
+          }
+          break;
+	      }
       }
     }
 
-    // 现在处理的是地址无效的情况
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
-  } 
-  else {
+    if(p->killed != 1 && i <= MAXVMA){
+      ilock(pvma->f->ip);
+      readi(pvma->f->ip, 1, va, va - pvma->addr, PGSIZE);
+      iunlock(pvma->f->ip);
+    }
+  } else if((which_dev = devintr()) != 0){
+    // ok
+  } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
-
-  out:
-  if(p->killed)
-    exit(-1);
 
   if(p->killed)
     exit(-1);

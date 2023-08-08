@@ -82,23 +82,20 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
-void* mmap(void *addr, int length, int prot, int flags,
-           int fd, int offset);
+// void* mmap(void *addr, int length, int prot, int flags,
+//            int fd, int offset);
 
-// Number of virtual memory area per process
-#define NVMA 16
-
-// Virtual Memory Area
+#define MAXVMA 16
 struct vma {
-  uint64 start; // 地址空间的起始地址
-  uint64 end; // 终止地址
-  uint64 length; // 映射的内容的长度
-  int prot; // 访问权限：可读吗？可写吗？（可运行吗？）
-  int flags; // 是否要把映射内存中的修改写回文件？
-  int npg; // 现在映射的内容占用了多少张物理页？
-  uint64 off; // 文件的偏移量？
-  struct file* file; // 映射了哪个文件？
+  int mapped;
+  uint64 addr;
+  int len;
+  int prot;
+  int flags;
+  int offset;
+  struct file *f;
 };
+
 
 // Per-process state
 struct proc {
@@ -123,5 +120,5 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  struct vma va[NVMA];        // Vma information for mmap
+  struct vma vma_table[MAXVMA];// Table of mapped regions
 };

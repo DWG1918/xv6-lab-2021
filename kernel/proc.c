@@ -5,7 +5,6 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -142,18 +141,6 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-   // Clear the VMA array
-  for (int i = 0; i < NVMA; i++) {
-    p->vmas[i].valid  = 0;
-    p->vmas[i].addr   = 0;
-    p->vmas[i].length = 0;
-    p->vmas[i].prot   = 0;
-    p->vmas[i].flags  = 0;
-    p->vmas[i].fd     = 0;
-    p->vmas[i].offset = 0;
-    p->vmas[i].f      = 0;
-  }
-
   return p;
 }
 
@@ -285,7 +272,7 @@ growproc(int n)
 int
 fork(void)
 {
-  int i, pid;
+   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
 
@@ -313,6 +300,13 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+
+  for(int i = 0; i < MAXVMA; i++){
+    if(p->vma_table[i].mapped){
+      memmove(&np->vma_table[i], &p->vma_table[i], sizeof(struct vma));
+      filedup(np->vma_table[i].f);
+    }
+  }
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -363,6 +357,18 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+ struct vma *pvma;
+  for(int i = 0; i < MAXVMA; i++){
+    pvma = &p->vma_table[i];
+    if(pvma->mapped){
+      //uvmunmap(p->pagetable, pvma->addr, pvma->len / PGSIZE, 0);
+      //memset(pvma, 0, sizeof(struct vma));
+      if(munmap(pvma->addr, pvma->len) < 0){
+        panic("exit munmap");
+      }
     }
   }
 
